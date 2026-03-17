@@ -7,7 +7,7 @@
 ## 1. The Problem Statement (The "Why")
 Most "Text-to-SQL" implementations are dangerous. They risk **SQL injection**, expose sensitive **PII (Personally Identifiable Information)**, and are prone to **hallucinations**. 
 
-Having managed enterprise data at Traka (ASSA ABLOY) for 20 years, I know that giving an LLM raw access to a production database is a non-starter. This project aims to solve that by placing a sophisticated engineering "buffer" between the AI and the Data.
+Having managed enterprise data at Traka (ASSA ABLOY) for 10 years as well as 5 years at Inchcape, I know that giving an LLM raw access to a production database is a non-starter. This project aims to solve that by placing a sophisticated engineering "buffer" between the AI and the Data.
 
 ## 2. The Architectural Solution (The "How")
 This project demonstrates a **Secure Intelligence Layer**. Instead of giving the AI the whole schema, I built a **Metadata Proxy**.
@@ -20,7 +20,7 @@ This project demonstrates a **Secure Intelligence Layer**. Instead of giving the
 * **Runtime:** .NET 10
 * **Orchestration:** Microsoft Semantic Kernel
 * **Database:** SQL Server 2022 (Physical Access Control / IAM Schema)
-* **AI Model:** Gemini 1.5 Flash (via Google AI SDK)
+* **AI Model:** Gemini 2.5 Flash (via Google AI SDK)
 * **Resilience:** Polly (Exponential Backoff & Retries)
 
 ## 4. Security "Moat" (The Senior Edge)
