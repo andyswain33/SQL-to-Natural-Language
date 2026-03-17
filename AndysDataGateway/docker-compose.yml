@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # 1. The Isolated Database
+  sql-gateway-dev:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sql-gateway-dev
+    env_file: .env
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${DB_PASSWORD}
+      - MSSQL_MEMORY_LIMIT_MB=2048
+    ports:
+      - "1433:1433"
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "${DB_PASSWORD}", "-C", "-Q", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # 2. The Secure API Layer
+  gateway-api:
+    build:
+      context: .
+      dockerfile: src/Gateway.API/Dockerfile
+    env_file: .env
+    container_name: gateway-api
+    ports:
+      - "8080:8080" # Maps localhost:8080 to the container
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sql-gateway-dev,1433;Database=SecureGatewayIAM;User Id=sa;Password=${DB_PASSWORD};TrustServerCertificate=True;
+      - GeminiApiKey=${GEMINI_API_KEY} # Pulls from .env
+    depends_on:
+      sql-gateway-dev:
+        condition: service_healthy # Waits for SQL Server to boot before starting the API

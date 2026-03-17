@@ -1,0 +1,146 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Data Gateway | AI-to-SQL</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+        }
+
+        .terminal {
+            font-family: 'Fira Code', 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-8">
+    <div class="max-w-5xl mx-auto">
+        <div class="flex justify-between items-center mb-12 border-b border-slate-700 pb-6">
+            <div>
+                <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">
+                    Secure AI Gateway
+                </h1>
+                <p class="text-slate-400">Natural Language IAM Data Access</p>
+            </div>
+
+            <div class="flex items-center gap-4 bg-slate-800 p-3 rounded-xl border border-slate-700">
+                <span class="text-sm font-medium">Enterprise Privacy</span>
+                <button id="maskToggle" onclick="toggleMask()" class="relative inline-flex h-6 w-11 items-center rounded-full bg-emerald-600 transition">
+                    <span id="toggleKnob" class="inline-block h-4 w-4 transform rounded-full bg-white transition translate-x-6"></span>
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-2 space-y-6">
+                <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl">
+                    <label class="block text-sm font-semibold mb-2 text-slate-400 uppercase tracking-wider">Ask a Question</label>
+                    <textarea id="userInput" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
+                              placeholder="e.g. Who has top secret clearance and what are their emails?"></textarea>
+                    <button onclick="askAIGateway()" id="sendBtn" class="mt-4 w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-blue-900/20">
+                        Execute Secure Query
+                    </button>
+                </div>
+
+                <div id="responseCard" class="hidden bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl border-l-4 border-l-emerald-500">
+                    <label class="block text-sm font-semibold mb-2 text-emerald-400 uppercase tracking-wider">AI Summary</label>
+                    <p id="answerText" class="text-xl leading-relaxed"></p>
+                </div>
+            </div>
+
+            <div class="space-y-6">
+                <div class="bg-black rounded-2xl p-4 border border-slate-700 h-full overflow-hidden flex flex-col">
+                    <div class="flex gap-2 mb-4">
+                        <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                    </div>
+                    <div class="terminal text-xs space-y-4 overflow-y-auto max-h-[500px]">
+                        <div>
+                            <p class="text-emerald-500 font-bold uppercase">[System Status]</p>
+                            <p class="text-slate-500">Gateway Online. Firewall Active.</p>
+                        </div>
+                        <div id="sqlDiag" class="hidden">
+                            <p class="text-blue-400 font-bold uppercase">[Generated SQL]</p>
+                            <pre id="sqlText" class="text-blue-200 mt-1 whitespace-pre-wrap"></pre>
+                        </div>
+                        <div id="rawDiag" class="hidden">
+                            <p class="text-purple-400 font-bold uppercase">[Intercepted JSON]</p>
+                            <pre id="rawJson" class="text-purple-200 mt-1"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isMaskingEnabled = true;
+
+        function toggleMask() {
+            isMaskingEnabled = !isMaskingEnabled;
+            const btn = document.getElementById('maskToggle');
+            const knob = document.getElementById('toggleKnob');
+
+            if (btn && knob) {
+                btn.classList.toggle('bg-emerald-600', isMaskingEnabled);
+                btn.classList.toggle('bg-slate-600', !isMaskingEnabled);
+                knob.classList.toggle('translate-x-6', isMaskingEnabled);
+                knob.classList.toggle('translate-x-1', !isMaskingEnabled);
+            }
+        }
+
+        async function askAIGateway() {
+            const inputEl = document.getElementById('userInput');
+            const btn = document.getElementById('sendBtn');
+
+            if (!inputEl || !btn) return;
+
+            // Bracket notation bypasses Visual Studio's strict type checking
+            const input = inputEl['value'];
+            if (!input) return;
+
+            btn['disabled'] = true;
+            btn.innerText = "Processing Security Layers...";
+
+            try {
+                const response = await fetch('/api/NaturalLanguageQuery/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userQuery: input,
+                        enableEnterpriseMasking: isMaskingEnabled
+                    })
+                });
+
+                const data = await response.json();
+
+                // Safely update the UI elements
+                const responseCard = document.getElementById('responseCard');
+                const sqlDiag = document.getElementById('sqlDiag');
+                const rawDiag = document.getElementById('rawDiag');
+                const answerText = document.getElementById('answerText');
+                const sqlText = document.getElementById('sqlText');
+                const rawJson = document.getElementById('rawJson');
+
+                if (responseCard) responseCard.classList.remove('hidden');
+                if (sqlDiag) sqlDiag.classList.remove('hidden');
+                if (rawDiag) rawDiag.classList.remove('hidden');
+
+                if (answerText) answerText.innerText = data.answer;
+                if (sqlText) sqlText.innerText = data.diagnostics.validatedSql;
+                if (rawJson) rawJson.innerText = JSON.stringify(JSON.parse(data.diagnostics.rawDataPayload), null, 2);
+
+            } catch (err) {
+                alert("Gateway Error: Check logs.");
+            } finally {
+                btn['disabled'] = false;
+                btn.innerText = "Execute Secure Query";
+            }
+        }
+    </script>
+</body>
+</html>

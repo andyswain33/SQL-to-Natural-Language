@@ -1,0 +1,30 @@
+## -- SECRETS & ENVIRONMENT --
+.env
+*.user
+**/appsettings.Development.json
+
+## -- VISUAL STUDIO & DOTNET --
+# Ignore all build outputs
+[Bb]in/
+[Oo]bj/
+
+# Ignore Visual Studio indexing and layouts
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.slnx.sqlite
+
+## -- DOCKER --
+# We keep Dockerfile and docker-compose.yml, but ignore local context
+.dockerignore
+
+## -- OPERATING SYSTEM --
+.DS_Store
+Thumbs.db
+
+## -- RECOVERY FILES --
+*-backup
+*-copy
