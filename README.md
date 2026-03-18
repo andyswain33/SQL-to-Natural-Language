@@ -112,7 +112,24 @@ graph TD
 * **Resolution:** This is a byproduct of the Gemini Free Tier limits. The Gateway is architected to handle this via a **Polly Resilience Policy**, which automatically retries the request with an exponential backoff (2s, 4s, 8s). 
 * **Note:** If retries continue to fail, you have likely reached the **Daily Quota (RPD)**. Access will automatically restore at the start of the next 24-hour cycle (typically 5:00 PM GMT). To minimize these errors during a demo, avoid rapid-fire queries and allow the AI response to complete before sending a new request.
 
----## 📂 Project Structure
+---
+
+## 🖼️ Live Demo: The Secure Gateway in Action
+
+This project demonstrates a real-world execution of the secure AI middleware. The interface below showcases how the system coordinates intent mapping, data retrieval, and automated privacy masking.
+
+![Secure AI Gateway Demo](./docs/hero-demo.png)
+
+#### **Technical Deep-Dive: What’s Happening?**
+
+* **Dynamic Intent Mapping:** The **Semantic Kernel** orchestrator identifies the user's goal (e.g., "finding IT staff") and provides the LLM with metadata for the specific `vw_ActiveIdentities` view rather than the entire database schema.
+* **Safety Interception:** The generated T-SQL is intercepted by a custom .NET middleware firewall. For this demonstration, the gateway utilizes **Regex word-boundary checking** to prevent SQL injection and enforce read-only access.
+* **Enterprise Privacy (PII Masking):** As seen in the **Intercepted JSON** and **AI Summary** panels, the system identifies sensitive fields. Before the data is summarized for the user, the email address `alice.smith@enterprise.com` is masked to `a***h@enterprise.com` at the C# layer.
+* **Strategic Roadmap:** While Regex is effective for this gateway demo, the architecture is designed to be upgraded to a full **Abstract Syntax Tree (AST)** parser using `Microsoft.SqlServer.TransactSql.ScriptDom` for production environments to mathematically prevent malicious command injection.
+
+---
+
+## 📂 Project Structure
 
 ```text
 AndysDataGateway/
