@@ -16,6 +16,23 @@ This project demonstrates a **Secure Intelligence Layer**. Instead of giving the
 * **The Validation Engine:** Every AI-generated query is parsed and validated against a white-list of allowed tables and operations before execution.
 * **Agentic Orchestration:** Utilizing **Microsoft Semantic Kernel** to handle the reasoning loop, ensuring the system stays within defined business logic bounds.
 
+---
+
+## 🖼️ Live Demo: The Secure Gateway in Action
+
+This project demonstrates a real-world execution of the secure AI middleware. The interface below showcases how the system coordinates intent mapping, data retrieval, and automated privacy masking.
+
+![Secure AI Gateway Demo](./assets/hero-demo.png)
+
+#### **Technical Deep-Dive: What’s Happening?**
+
+* **Dynamic Intent Mapping:** The **Semantic Kernel** orchestrator identifies the user's goal (e.g., "finding IT staff") and provides the LLM with metadata for the specific `vw_ActiveIdentities` view rather than the entire database schema.
+* **Safety Interception:** The generated T-SQL is intercepted by a custom .NET middleware firewall. For this demonstration, the gateway utilizes **Regex word-boundary checking** to prevent SQL injection and enforce read-only access.
+* **Enterprise Privacy (PII Masking):** As seen in the **Intercepted JSON** and **AI Summary** panels, the system identifies sensitive fields. Before the data is summarized for the user, the email address `alice.smith@enterprise.com` is masked to `a***h@enterprise.com` at the C# layer.
+* **Strategic Roadmap:** While Regex is effective for this gateway demo, the architecture is designed to be upgraded to a full **Abstract Syntax Tree (AST)** parser using `Microsoft.SqlServer.TransactSql.ScriptDom` for production environments to mathematically prevent malicious command injection.
+
+---
+
 ## 3. Tech Stack
 * **Runtime:** .NET 10
 * **Orchestration:** Microsoft Semantic Kernel
@@ -31,6 +48,26 @@ This project demonstrates a **Secure Intelligence Layer**. Instead of giving the
 
 ---
 
+## 🏗️ Technical Architecture
+
+The system operates on a **Request-Validation-Execution** pipeline:
+
+```mermaid
+graph TD
+    A[User Natural Language Query] --> B[Semantic Kernel Orchestrator]
+    B --> C{Metadata Mapper}
+    C -->|Inject Context| D[LLM: Gemini 2.5 Flash]
+    D -->|Generate SQL| E[Safety Interceptor Middleware]
+    E -->|Validation Check| F{Is Safe?}
+    F -->|No| G[Error: Invalid Query]
+    F -->|Yes| H[SQL Server Execute]
+    H --> I[Result Hydration & PII Masking]
+    I --> J[Human-Readable Summary]
+    J --> K[End User]
+```
+
+---
+
 ## 🚀 Getting Started
 
 To run this gateway locally, ensure you have Docker Desktop (with WSL 2 backend recommended) and a Google Gemini API Key.
@@ -39,7 +76,7 @@ To run this gateway locally, ensure you have Docker Desktop (with WSL 2 backend 
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/your-username/SQL-to-Natural-Language.git](https://github.com/your-username/SQL-to-Natural-Language.git)
+   git clone [https://github.com/andyswain33/SQL-to-Natural-Language.git](https://github.com/andyswain33/SQL-to-Natural-Language.git)
    cd SQL-to-Natural-Language
    ```
 
@@ -63,26 +100,6 @@ To run this gateway locally, ensure you have Docker Desktop (with WSL 2 backend 
    ./setup-db.ps1
    ```
    *Access the Interactive Dashboard at `http://localhost:8080/index.html`.*
-
----
-
-## 🏗️ Technical Architecture
-
-The system operates on a **Request-Validation-Execution** pipeline:
-
-```mermaid
-graph TD
-    A[User Natural Language Query] --> B[Semantic Kernel Orchestrator]
-    B --> C{Metadata Mapper}
-    C -->|Inject Context| D[LLM: Gemini 1.5]
-    D -->|Generate SQL| E[Safety Interceptor Middleware]
-    E -->|Validation Check| F{Is Safe?}
-    F -->|No| G[Error: Invalid Query]
-    F -->|Yes| H[SQL Server Execute]
-    H --> I[Result Hydration & PII Masking]
-    I --> J[Human-Readable Summary]
-    J --> K[End User]
-```
 
 ---
 
@@ -114,18 +131,22 @@ graph TD
 
 ---
 
-## 🖼️ Live Demo: The Secure Gateway in Action
+## 🗺️ Future Roadmap: Moving to Production
 
-This project demonstrates a real-world execution of the secure AI middleware. The interface below showcases how the system coordinates intent mapping, data retrieval, and automated privacy masking.
+While this gateway serves as a high-fidelity functional prototype, transitioning this architecture to a high-stakes production environment (e.g., within an Enterprise IAM suite at ASSA ABLOY) would involve the following security and scalability upgrades:
 
-![Secure AI Gateway Demo](./docs/hero-demo.png)
+#### **1. Hardened SQL Parsing (The AST Upgrade)**
+The current safety interceptor utilizes regex word-boundary checking to validate queries, which is highly effective for this demonstration. However, the roadmap for production involves:
+* **Implementation:** Upgrading the validation class to use the **Microsoft.SqlServer.TransactSql.ScriptDom** library.
+* **The Benefit:** By parsing the SQL string into a mathematically defined **Abstract Syntax Tree (AST)**, it becomes impossible for an LLM to bypass security filters using obscure formatting, nested comments, or complex injection techniques.
 
-#### **Technical Deep-Dive: What’s Happening?**
+#### **2. Granular RBAC Integration**
+* **Identity Mapping:** Integrating the gateway directly with an organization’s Active Directory or IAM provider.
+* **Contextual Permissions:** Dynamically filtering available metadata based on the specific permissions of the logged-in user, ensuring "Principle of Least Privilege" is maintained at the AI layer.
 
-* **Dynamic Intent Mapping:** The **Semantic Kernel** orchestrator identifies the user's goal (e.g., "finding IT staff") and provides the LLM with metadata for the specific `vw_ActiveIdentities` view rather than the entire database schema.
-* **Safety Interception:** The generated T-SQL is intercepted by a custom .NET middleware firewall. For this demonstration, the gateway utilizes **Regex word-boundary checking** to prevent SQL injection and enforce read-only access.
-* **Enterprise Privacy (PII Masking):** As seen in the **Intercepted JSON** and **AI Summary** panels, the system identifies sensitive fields. Before the data is summarized for the user, the email address `alice.smith@enterprise.com` is masked to `a***h@enterprise.com` at the C# layer.
-* **Strategic Roadmap:** While Regex is effective for this gateway demo, the architecture is designed to be upgraded to a full **Abstract Syntax Tree (AST)** parser using `Microsoft.SqlServer.TransactSql.ScriptDom` for production environments to mathematically prevent malicious command injection.
+#### **3. Advanced Audit & Telemetry**
+* **Compliance:** Implementing a dedicated telemetry sink to log every generated query, its validation status, and the raw/masked result set.
+* **Continuous Improvement:** Utilizing these logs to "Fine-Tune" the metadata mapper and orchestrator based on real-world user intent and failure points.
 
 ---
 
