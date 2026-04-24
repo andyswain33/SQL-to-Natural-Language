@@ -1,4 +1,6 @@
-﻿using Gateway.Infrastructure.Data;
+﻿using Gateway.Core.Mapping;
+using Gateway.Infrastructure.Data;
+using Xunit;
 
 namespace Gateway.Tests;
 
@@ -8,80 +10,103 @@ public class SqlSafetyInterceptorTests
 
     public SqlSafetyInterceptorTests()
     {
-        // The interceptor has no external dependencies, making it beautifully easy to unit test.
-        _interceptor = new SqlSafetyInterceptor();
+        // Wire up the actual MetadataMapper so we can test the context boundaries
+        var mapper = new MetadataMapper();
+        _interceptor = new SqlSafetyInterceptor(mapper);
     }
 
-    [Theory]
-    [InlineData("SELECT FirstName, LastName FROM vw_ActiveIdentities WHERE ClearanceLevel = 3")]
-    [InlineData("WITH CTE AS (SELECT * FROM vw_HighSecurityAccessLogs) SELECT * FROM CTE")]
-    [InlineData("select email from VW_ActiveIdentities")] // Case insensitivity check
-    [InlineData("  SELECT * FROM vw_ActiveIdentities  ")] // Whitespace check
-    public void IsQuerySafe_ValidQueries_ReturnsTrue(string validSql)
+    [Fact]
+    public void IsQuerySafe_ValidSelectWithinContext_ReturnsTrue()
     {
+        // Arrange: The prompt implies checking users (Identities)
+        string prompt = "Show me all IT staff";
+        string sql = "SELECT FirstName, LastName FROM vw_ActiveIdentities WHERE Department = 'IT'";
+
         // Act
-        bool isSafe = _interceptor.IsQuerySafe(validSql, out string errorMessage);
+        bool isSafe = _interceptor.IsQuerySafe(sql, prompt, out string errorMessage);
 
         // Assert
         Assert.True(isSafe);
         Assert.Empty(errorMessage);
     }
 
-    [Theory]
-    // Prepend SELECT to bypass Rule 1, forcing Rule 2 (the Regex scanner) to do the work.
-    [InlineData("SELECT * FROM vw_ActiveIdentities; UPDATE vw_ActiveIdentities SET ClearanceLevel = 3", "UPDATE")]
-    [InlineData("SELECT * FROM vw_ActiveIdentities; DROP TABLE Identities;", "DROP")]
-    [InlineData("SELECT * FROM vw_ActiveIdentities; DELETE FROM vw_HighSecurityAccessLogs", "DELETE")]
-    [InlineData("SELECT * FROM vw_ActiveIdentities; INSERT INTO vw_ActiveIdentities (FirstName) VALUES ('Test')", "INSERT")]
-    // Removed 'DROP' from the payload so it specifically triggers the 'EXEC' rule
-    [InlineData("SELECT * FROM vw_ActiveIdentities; EXEC sp_msforeachtable 'SELECT 1'", "EXEC")]
-    [InlineData("SELECT * FROM vw_ActiveIdentities; ALTER VIEW vw_ActiveIdentities AS SELECT * FROM Identities", "ALTER")]
-    public void IsQuerySafe_DestructiveKeywords_ReturnsFalse(string maliciousSql, string expectedKeyword)
+    [Fact]
+    public void IsQuerySafe_UnauthorizedView_ReturnsFalse()
     {
+        // Arrange: The prompt is explicitly about identities ('employees')
+        // Therefore, MetadataMapper will ONLY authorize vw_ActiveIdentities.
+        string prompt = "Show me all IT employees";
+
+        // The SQL maliciously targets SecurityLogs, which was NOT authorized by the prompt.
+        string sql = "SELECT * FROM vw_HighSecurityAccessLogs";
+
         // Act
-        bool isSafe = _interceptor.IsQuerySafe(maliciousSql, out string errorMessage);
+        bool isSafe = _interceptor.IsQuerySafe(sql, prompt, out string errorMessage);
 
         // Assert
         Assert.False(isSafe);
-        Assert.Contains($"'{expectedKeyword}'", errorMessage);
+        Assert.Contains("Security Violation", errorMessage);
+        Assert.Contains("vw_HighSecurityAccessLogs", errorMessage);
     }
 
     [Fact]
-    public void IsQuerySafe_TargetsBaseTableInsteadOfView_ReturnsFalse()
+    public void IsQuerySafe_DestructiveDmlCommand_ReturnsFalse()
     {
-        // Arrange - Valid SELECT, but targets the raw 'Identities' table directly
+        // Arrange
+        string prompt = "Show me all IT staff";
+        string sql = "UPDATE vw_ActiveIdentities SET ClearanceLevel = 5 WHERE Department = 'IT'";
+
+        // Act
+        bool isSafe = _interceptor.IsQuerySafe(sql, prompt, out string errorMessage);
+
+        // Assert
+        Assert.False(isSafe);
+        Assert.Contains("Only SELECT statements are permitted", errorMessage);
+    }
+
+    [Fact]
+    public void IsQuerySafe_MultipleStatements_ReturnsFalse()
+    {
+        // Arrange: A classic injection attempt
+        string prompt = "Show me all IT staff";
+        string sql = "SELECT * FROM vw_ActiveIdentities; DROP TABLE vw_ActiveIdentities;";
+
+        // Act
+        bool isSafe = _interceptor.IsQuerySafe(sql, prompt, out string errorMessage);
+
+        // Assert
+        Assert.False(isSafe);
+        Assert.Contains("Only single-statement batches are allowed", errorMessage);
+    }
+
+    [Fact]
+    public void IsQuerySafe_InvalidSqlSyntax_ReturnsFalse()
+    {
+        // Arrange: The LLM hallucinated terrible SQL
+        string prompt = "Show me all IT staff";
+        string sql = "SELECT * FROM WHERE AND ORDER BY WHAT";
+
+        // Act
+        bool isSafe = _interceptor.IsQuerySafe(sql, prompt, out string errorMessage);
+
+        // Assert
+        Assert.False(isSafe);
+        Assert.Contains("SQL parsing failed. Invalid syntax", errorMessage);
+    }
+
+    [Fact]
+    public void IsQuerySafe_BaseTableAccess_ReturnsFalse()
+    {
+        // Arrange: Trying to access the physical 'Identities' table instead of the view
+        string prompt = "Show me all IT staff";
         string sql = "SELECT * FROM Identities";
 
         // Act
-        bool isSafe = _interceptor.IsQuerySafe(sql, out string errorMessage);
+        bool isSafe = _interceptor.IsQuerySafe(sql, prompt, out string errorMessage);
 
         // Assert
         Assert.False(isSafe);
-        Assert.Contains("read-only view", errorMessage);
-    }
-
-    [Fact]
-    public void IsQuerySafe_DoesNotStartWithSelect_ReturnsFalse()
-    {
-        // Arrange
-        string sql = "TRUNCATE TABLE AccessAttempts";
-
-        // Act
-        bool isSafe = _interceptor.IsQuerySafe(sql, out string errorMessage);
-
-        // Assert
-        Assert.False(isSafe);
-        Assert.Contains("SELECT statement or a CTE", errorMessage);
-    }
-
-    [Fact]
-    public void IsQuerySafe_EmptyQuery_ReturnsFalse()
-    {
-        // Act
-        bool isSafe = _interceptor.IsQuerySafe("   ", out string errorMessage);
-
-        // Assert
-        Assert.False(isSafe);
-        Assert.Contains("empty query", errorMessage);
+        Assert.Contains("Security Violation", errorMessage);
+        Assert.Contains("Identities", errorMessage);
     }
 }

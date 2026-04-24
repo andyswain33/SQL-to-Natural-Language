@@ -53,16 +53,24 @@ public class DataMaskingService
             return string.Concat("***", email.AsSpan(atIndex));
         }
 
-        return string.Create(email.Length, (email, atIndex), (span, state) =>
+        // We want: FirstChar + "***" + LastChar + "@domain.com"
+        // The domainPart length includes the '@' symbol.
+        int domainLength = email.Length - atIndex;
+        int newLength = 5 + domainLength; // 1 (first) + 3 (***) + 1 (last) = 5
+
+        return string.Create(newLength, (email, atIndex), (span, state) =>
         {
             ReadOnlySpan<char> originalSpan = state.email.AsSpan();
             ReadOnlySpan<char> localPart = originalSpan.Slice(0, state.atIndex);
             ReadOnlySpan<char> domainPart = originalSpan.Slice(state.atIndex);
 
             span[0] = localPart[0];
-            for (int i = 1; i < localPart.Length - 1; i++) span[i] = '*';
-            span[localPart.Length - 1] = localPart[^1];
-            domainPart.CopyTo(span.Slice(localPart.Length));
+            span[1] = '*';
+            span[2] = '*';
+            span[3] = '*';
+            span[4] = localPart[^1]; // Last char of the local part
+
+            domainPart.CopyTo(span.Slice(5));
         });
     }
 }

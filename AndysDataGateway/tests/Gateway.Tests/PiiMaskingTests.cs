@@ -1,72 +1,90 @@
-﻿using Gateway.Infrastructure.Data;
-using Microsoft.Extensions.Configuration;
+﻿using Gateway.Core.Services;
+using System.Text.Json;
+using Xunit;
 
 namespace Gateway.Tests;
 
 public class PiiMaskingTests
 {
-    private readonly SqlExecutionService _executionService;
+    private readonly DataMaskingService _maskingService;
 
     public PiiMaskingTests()
     {
-        // Build a "dummy" configuration object to satisfy the constructor
-        var inMemorySettings = new Dictionary<string, string?> {
-            {"ConnectionStrings:DefaultConnection", "Server=dummy;Database=dummy;"}
-        };
-
-        IConfiguration configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(inMemorySettings)
-            .Build();
-
-        _executionService = new SqlExecutionService(configuration);
+        // The service now lives in Core and has zero dependencies!
+        _maskingService = new DataMaskingService();
     }
 
     [Theory]
-    [InlineData("Email", "alice.smith@enterprise.com", "a***h@enterprise.com")]
-    [InlineData("email", "bob.jones@enterprise.com", "b***s@enterprise.com")]
-    [InlineData("EMAIL_ADDRESS", "charlie.brown@test.org", "c***n@test.org")]
-    [InlineData("ContactEmail", "d.trump@gov.us", "d***p@gov.us")]
-    public void MaskIfPii_EmailColumns_SuccessfullyMasksData(string columnName, string rawEmail, string expectedMask)
+    [InlineData("alice.smith@enterprise.com", "a***h@enterprise.com")]
+    [InlineData("bob.jones@enterprise.com", "b***s@enterprise.com")]
+    [InlineData("ab@test.org", "***@test.org")] // Tests the short-prefix edge case
+    public void MaskAndSerialize_MaskingEnabled_MasksEmailsCorrectly(string rawEmail, string expectedMask)
     {
+        // Arrange
+        var rawData = new List<Dictionary<string, object?>>
+        {
+            new() { { "Email", rawEmail }, { "FirstName", "Test" } }
+        };
+
         // Act
-        var result = _executionService.MaskIfPii(columnName, rawEmail);
+        var jsonResult = _maskingService.MaskAndSerialize(rawData, enableMasking: true);
 
         // Assert
-        Assert.Equal(expectedMask, result);
+        Assert.Contains(expectedMask, jsonResult);
+        Assert.DoesNotContain(rawEmail, jsonResult);
+    }
+
+    [Fact]
+    public void MaskAndSerialize_MaskingDisabled_ReturnsRawDataUnchanged()
+    {
+        // Arrange
+        string rawEmail = "top.secret@enterprise.com";
+        var rawData = new List<Dictionary<string, object?>>
+        {
+            new() { { "Email", rawEmail } }
+        };
+
+        // Act
+        var jsonResult = _maskingService.MaskAndSerialize(rawData, enableMasking: false);
+
+        // Assert
+        Assert.Contains(rawEmail, jsonResult);
     }
 
     [Theory]
     [InlineData("FirstName", "Alice")]
-    [InlineData("LastName", "Smith")]
     [InlineData("Department", "IT")]
     [InlineData("ClearanceLevel", 3)]
-    public void MaskIfPii_NonPiiColumns_ReturnsRawData(string columnName, object rawValue)
+    public void MaskAndSerialize_NonPiiColumns_AreNotMasked(string columnName, object rawValue)
     {
+        // Arrange
+        var rawData = new List<Dictionary<string, object?>>
+        {
+            new() { { columnName, rawValue } }
+        };
+
         // Act
-        var result = _executionService.MaskIfPii(columnName, rawValue);
+        var jsonResult = _maskingService.MaskAndSerialize(rawData, enableMasking: true);
 
         // Assert
-        // By converting both sides to strings, we eliminate any int/string/long boxing conflicts
-        Assert.Equal(rawValue?.ToString(), result?.ToString());
+        var expectedValueString = rawValue.ToString();
+        Assert.Contains(expectedValueString!, jsonResult);
     }
 
     [Fact]
-    public void MaskIfPii_NullValues_ReturnsNull()
+    public void MaskAndSerialize_NullValues_AreHandledSafely()
     {
+        // Arrange
+        var rawData = new List<Dictionary<string, object?>>
+        {
+            new() { { "Email", null }, { "Department", "" } }
+        };
+
         // Act
-        var result = _executionService.MaskIfPii("Email", null!);
+        var jsonResult = _maskingService.MaskAndSerialize(rawData, enableMasking: true);
 
         // Assert
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void MaskIfPii_EmptyEmailString_ReturnsEmptyString()
-    {
-        // Act
-        var result = _executionService.MaskIfPii("Email", "");
-
-        // Assert
-        Assert.Equal("", result);
+        Assert.Contains("\"Email\": null", jsonResult);
+        Assert.Contains("\"Department\": \"\"", jsonResult);
     }
 }

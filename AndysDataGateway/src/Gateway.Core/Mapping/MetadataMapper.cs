@@ -16,7 +16,7 @@ public class MetadataMapper
                 new AuthorizedSchemaObject
                 {
                     ObjectName = "vw_ActiveIdentities",
-                    Description = "Use this to query information about active personnel, their departments, and clearance levels.",
+                    Description = "Use this to query information about active personnel. NOTE: ClearanceLevel is an INT where 1=Standard, 2=Elevated, and 3=Top Secret.",
                     AllowedColumns = ["IdentityID", "FirstName", "LastName", "Email", "Department", "JobTitle", "ClearanceLevel"]
                 }
             },

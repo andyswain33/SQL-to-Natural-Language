@@ -21,19 +21,21 @@ public static class DependencyInjection
         services.AddTransient<ISqlSafetyInterceptor, SqlSafetyInterceptor>();
         services.AddTransient<IQueryExecutor, SqlExecutionService>();
 
-        // 3. Build and Register the Semantic Kernel with Polly V8 Resilience
+        // 3. Register the Resilient HTTP Client on the MAIN service collection
+        // This ensures IHttpClientFactory is globally available to the application.
+        services.AddHttpClient("GeminiClient")
+               .AddStandardResilienceHandler(); // Polly V8
+
+        // 4. Build and Register the Semantic Kernel
         services.AddTransient<Kernel>(sp =>
         {
             var builder = Kernel.CreateBuilder();
-
-            // Inject the resilient HTTP client to handle Gemini 429 errors globally
-            builder.Services.AddHttpClient("GeminiClient")
-                   .AddStandardResilienceHandler();
 
 #pragma warning disable SKEXP0070 
             builder.AddGoogleAIGeminiChatCompletion(
                 modelId: "gemini-2.5-flash",
                 apiKey: geminiApiKey,
+                // We can now safely resolve the factory from the main provider
                 httpClient: sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeminiClient"));
 #pragma warning restore SKEXP0070
 

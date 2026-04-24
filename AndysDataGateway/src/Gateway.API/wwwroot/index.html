@@ -127,6 +127,16 @@
                 const rawJson = document.getElementById('rawJson');
 
                 if (responseCard) responseCard.classList.remove('hidden');
+
+                // Handle Backend Errors Gracefully
+                if (!response.ok) {
+                    if (answerText) answerText.innerText = `🚨 ${data.error}\nDetails: ${data.reason || data.details || "See terminal logs"}`;
+                    if (sqlDiag) sqlDiag.classList.add('hidden');
+                    if (rawDiag) rawDiag.classList.add('hidden');
+                    return; // Stop execution here
+                }
+
+                // Happy Path
                 if (sqlDiag) sqlDiag.classList.remove('hidden');
                 if (rawDiag) rawDiag.classList.remove('hidden');
 
@@ -135,8 +145,9 @@
                 if (rawJson) rawJson.innerText = JSON.stringify(JSON.parse(data.diagnostics.rawDataPayload), null, 2);
 
             } catch (err) {
-                alert("Gateway Error: Check logs.");
+                alert("Critical Frontend Error: " + err.message);
             } finally {
+                // Always reset the button so the user isn't permanently locked out
                 btn['disabled'] = false;
                 btn.innerText = "Execute Secure Query";
             }
