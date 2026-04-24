@@ -1,63 +1,56 @@
-﻿using System.Text.RegularExpressions;
+﻿using Gateway.Core.Interfaces;
+using Gateway.Core.Mapping;
+using Gateway.Infrastructure.Security;
+using Microsoft.SqlServer.TransactSql.ScriptDom;
 
-namespace Gateway.Infrastructure.Data
+namespace Gateway.Infrastructure.Data;
+
+public class SqlSafetyInterceptor : ISqlSafetyInterceptor
 {
-    /// <summary>
-    /// Acts as the final checkpoint before executing AI-generated SQL against the database.
-    /// </summary>
-    public class SqlSafetyInterceptor
+    private readonly MetadataMapper _metadataMapper;
+
+    public SqlSafetyInterceptor(MetadataMapper metadataMapper)
     {
-        // A strict blacklist of DDL and DML commands.
-        private static readonly string[] ForbiddenKeywords =
+        _metadataMapper = metadataMapper;
+    }
+
+    public bool IsQuerySafe(string generatedSql, string userPrompt, out string errorMessage)
+    {
+        errorMessage = string.Empty;
+
+        var parser = new TSql160Parser(initialQuotedIdentifiers: true);
+        using var reader = new StringReader(generatedSql);
+        var fragment = parser.Parse(reader, out IList<ParseError> errors);
+
+        if (errors.Count > 0)
         {
-            "UPDATE", "DELETE", "INSERT", "DROP", "ALTER", "CREATE",
-            "EXEC", "EXECUTE", "TRUNCATE", "MERGE", "GRANT", "REVOKE"
-        };
-
-        /// <summary>
-        /// Validates the AI-generated SQL against enterprise safety rules.
-        /// </summary>
-        public bool IsQuerySafe(string generatedSql, out string errorMessage)
-        {
-            errorMessage = string.Empty;
-
-            if (string.IsNullOrWhiteSpace(generatedSql))
-            {
-                errorMessage = "The AI generated an empty query.";
-                return false;
-            }
-
-            var upperSql = generatedSql.Trim().ToUpperInvariant();
-
-            // 1. Must be a Read-Only operation
-            if (!upperSql.StartsWith("SELECT") && !upperSql.StartsWith("WITH"))
-            {
-                errorMessage = "Security Violation: Query must be a SELECT statement or a CTE (WITH).";
-                return false;
-            }
-
-            // 2. Scan for Destructive Keywords using Word Boundaries (\b)
-            // This prevents false positives (e.g., blocking a column named 'DropOffTime' because it contains 'DROP')
-            foreach (var keyword in ForbiddenKeywords)
-            {
-                var pattern = $@"\b{keyword}\b";
-                if (Regex.IsMatch(upperSql, pattern))
-                {
-                    errorMessage = $"Security Violation: Query contains forbidden operational keyword '{keyword}'.";
-                    return false;
-                }
-            }
-
-            // 3. Enforce View-Only Access 
-            // Ensures the query targets our abstraction layer (vw_) and not base tables.
-            if (!upperSql.Contains("VW_"))
-            {
-                errorMessage = "Security Violation: Query does not target an authorized read-only view.";
-                return false;
-            }
-
-            // If it passes all checks, it is cleared for execution.
-            return true;
+            errorMessage = "SQL parsing failed. Invalid syntax.";
+            return false;
         }
+
+        var script = fragment as TSqlScript;
+        if (script?.Batches.Count != 1 || script.Batches[0].Statements.Count != 1)
+        {
+            errorMessage = "Only single-statement batches are allowed.";
+            return false;
+        }
+
+        if (script.Batches[0].Statements[0] is not SelectStatement)
+        {
+            errorMessage = "Security Violation: Only SELECT statements are permitted.";
+            return false;
+        }
+
+        var authorizedViews = _metadataMapper.GetAuthorizedViewNames(userPrompt);
+        var visitor = new SecureViewVisitor(authorizedViews);
+        script.Accept(visitor);
+
+        if (visitor.SecurityViolations.Count > 0)
+        {
+            errorMessage = string.Join(" ", visitor.SecurityViolations);
+            return false;
+        }
+
+        return true;
     }
 }

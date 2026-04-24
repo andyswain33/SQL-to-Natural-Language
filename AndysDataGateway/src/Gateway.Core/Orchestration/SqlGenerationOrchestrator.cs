@@ -1,69 +1,91 @@
 ﻿using Microsoft.SemanticKernel;
 using Gateway.Core.Mapping;
-using Polly;
-using Polly.Retry;
-using System.Net;
+using Gateway.Core.Interfaces;
+using Gateway.Core.Services;
 
-namespace Gateway.Core.Orchestration
+namespace Gateway.Core.Orchestration;
+
+public class OrchestrationResult
 {
-    public class SqlGenerationOrchestrator
+    public bool IsSuccess { get; set; }
+    public string ErrorMessage { get; set; } = string.Empty;
+    public string FinalAnswer { get; set; } = string.Empty;
+    public string ValidatedSql { get; set; } = string.Empty;
+    public string RawDataPayload { get; set; } = string.Empty;
+}
+
+public class SqlGenerationOrchestrator
+{
+    private readonly Kernel _kernel;
+    private readonly MetadataMapper _metadataMapper;
+    private readonly ISqlSafetyInterceptor _safetyInterceptor;
+    private readonly IQueryExecutor _queryExecutor;
+    private readonly DataMaskingService _maskingService;
+
+    public SqlGenerationOrchestrator(
+        Kernel kernel,
+        MetadataMapper metadataMapper,
+        ISqlSafetyInterceptor safetyInterceptor,
+        IQueryExecutor queryExecutor,
+        DataMaskingService maskingService)
     {
-        private readonly Kernel _kernel;
-        private readonly MetadataMapper _metadataMapper;
+        _kernel = kernel;
+        _metadataMapper = metadataMapper;
+        _safetyInterceptor = safetyInterceptor;
+        _queryExecutor = queryExecutor;
+        _maskingService = maskingService;
+    }
 
-        // Define a retry policy: Retry 3 times with exponential backoff
-        // (Wait 2s, then 4s, then 8s) if we hit a 429 error.
-        private readonly AsyncRetryPolicy _retryPolicy = Policy
-            .Handle<HttpOperationException>(ex => (int)ex.StatusCode == 429)
-            .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
-
-        public SqlGenerationOrchestrator(Kernel kernel, MetadataMapper metadataMapper)
-        {
-            _kernel = kernel;
-            _metadataMapper = metadataMapper;
-        }
-
-        public async Task<string> GenerateSecureSqlAsync(string userPrompt)
-        {
-            string schemaContext = _metadataMapper.GetSchemaContext(userPrompt);
-
-            var promptTemplate = @"
+    public async Task<OrchestrationResult> ProcessUserRequestAsync(string userPrompt, bool enableMasking)
+    {
+        // 1. Map Intent & Generate SQL
+        string schemaContext = _metadataMapper.GetSchemaContext(userPrompt);
+        var generatePrompt = @"
 {{$schemaContext}}
 Generate a valid, read-only Microsoft T-SQL SELECT statement to answer the user's request.
 Return ONLY the raw SQL code without markdown wrappers or explanations.
 User Request: {{$userPrompt}}";
 
-            // Wrap the call in the retry policy
-            var result = await _retryPolicy.ExecuteAsync(async () =>
-                await _kernel.InvokePromptAsync(promptTemplate, new KernelArguments
-                {
-                    { "schemaContext", schemaContext },
-                    { "userPrompt", userPrompt }
-                })
-            );
+        var sqlResult = await _kernel.InvokePromptAsync(generatePrompt, new KernelArguments
+        {
+            { "schemaContext", schemaContext },
+            { "userPrompt", userPrompt }
+        });
 
-            return result.ToString().Trim();
+        var generatedSql = sqlResult.ToString().Trim();
+
+        // 2. Validate AST Security
+        if (!_safetyInterceptor.IsQuerySafe(generatedSql, userPrompt, out string securityError))
+        {
+            return new OrchestrationResult { IsSuccess = false, ErrorMessage = securityError };
         }
 
-        public async Task<string> SummarizeDataAsync(string originalPrompt, string jsonResults)
-        {
-            var promptTemplate = @"
+        // 3. Execute Query
+        var rawData = await _queryExecutor.ExecuteRawAsync(generatedSql);
+
+        // 4. Apply Domain Masking
+        var jsonResults = _maskingService.MaskAndSerialize(rawData, enableMasking);
+
+        // 5. AI Summarization
+        var summarizePrompt = @"
 You are an enterprise data assistant. A secure database query has been executed to answer the user's question.
 User's Original Question: {{$originalPrompt}}
 Masked Database Results (JSON): {{$jsonResults}}
 Provide a concise, human-readable summary that directly answers the user. 
 CRITICAL: Only use provided data. Do not mention JSON or SQL.";
 
-            // Wrap this call too
-            var result = await _retryPolicy.ExecuteAsync(async () =>
-                await _kernel.InvokePromptAsync(promptTemplate, new KernelArguments
-                {
-                    { "originalPrompt", originalPrompt },
-                    { "jsonResults", jsonResults }
-                })
-            );
+        var summaryResult = await _kernel.InvokePromptAsync(summarizePrompt, new KernelArguments
+        {
+            { "originalPrompt", userPrompt },
+            { "jsonResults", jsonResults }
+        });
 
-            return result.ToString().Trim();
-        }
+        return new OrchestrationResult
+        {
+            IsSuccess = true,
+            FinalAnswer = summaryResult.ToString().Trim(),
+            ValidatedSql = generatedSql,
+            RawDataPayload = jsonResults
+        };
     }
 }
